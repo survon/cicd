@@ -1,0 +1,53 @@
+name: Build ARM Module Reusable
+
+on:
+  workflow_call:
+    inputs:
+      build_command:
+        type: string
+        description: 'Optional custom build command'
+        required: false
+        default: 'cargo build --release --target=arm-unknown-linux-gnueabihf'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Instruct Cargo to use the ARM cross-compiler as the linker.
+      CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Add ARM target
+        run: rustup target add arm-unknown-linux-gnueabihf
+
+      - name: Install cross compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
+
+      - name: Build for ARM
+        run: ${{ inputs.build_command }}
+
+      - name: Package Module ZIP
+        run: |
+          mkdir -p artifact
+          # Locate the dynamic library (assumes one .so file is produced)
+          lib_file=$(find target/arm-unknown-linux-gnueabihf/release/ -maxdepth 1 -type f -name "*.so" | head -n 1)
+          if [ -z "$lib_file" ]; then
+            echo "No .so file found in target directory!"
+            exit 1
+          fi
+          cp "$lib_file" artifact/
+          cp manifest.json artifact/
+          cd artifact && zip module.zip $(basename "$lib_file") manifest.json
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: module-arm-zip
+          path: artifact/module.zip
